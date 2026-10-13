@@ -491,6 +491,18 @@ else()
     message(STATUS "Assets partition not found, using v1 partition table")
 endif()
 
+# esp_mmap_assets 2.0.1 imports optional QOI tooling during PNG/JPEG conversion.
+# Apply the guarded import fix after component resolution, including clean CI.
+idf_component_get_property(MMAP_ASSETS_DIR espressif__esp_mmap_assets COMPONENT_DIR)
+execute_process(
+    COMMAND "${PYTHON}" "${PROJECT_DIR}/scripts/fix_mmap_assets_qoi_import.py"
+            "${MMAP_ASSETS_DIR}/py_tool/spiffs_assets_gen.py"
+    RESULT_VARIABLE MMAP_ASSETS_FIX_RESULT
+)
+if(NOT MMAP_ASSETS_FIX_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to apply optional QOI asset generator fix")
+endif()
+
 spiffs_create_partition_assets(
     resources
     "./xingzhi-assets"

@@ -75,12 +75,12 @@ jobs:
           else
             if [[ ${#AFFECTED[@]} -eq 0 ]]; then
               # PR 未命中具体 board 时，仍编译默认板卡作为冒烟测试，避免跳过编译检查
-              echo 'variants=[{"board":"metalio-claw-4","name":"metalio-claw-4"}]' >> $GITHUB_OUTPUT
+              echo 'variants=[{"board":"metalio-claw-1.54","name":"metalio-claw-1.54"}]' >> $GITHUB_OUTPUT
             else
               BOARDS_JSON=$(printf '%s\n' "${!AFFECTED[@]}" | sort -u | jq -R -s -c 'split("\n")[:-1]')
               FILTERED=$(echo "$ALL_VARIANTS" | jq -c --argjson boards "$BOARDS_JSON" 'map(select(.board as $b | $boards | index($b)))')
               if [[ "$FILTERED" == "[]" ]]; then
-                echo 'variants=[{"board":"metalio-claw-4","name":"metalio-claw-4"}]' >> $GITHUB_OUTPUT
+                echo 'variants=[{"board":"metalio-claw-1.54","name":"metalio-claw-1.54"}]' >> $GITHUB_OUTPUT
               else
                 echo "variants=$FILTERED" >> $GITHUB_OUTPUT
               fi
