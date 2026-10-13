@@ -1,0 +1,11 @@
+# ESP-IDF Partition Table — 16MB (xingzhi-metal-1.54 + Metalio UI)
+# OTA 放大到 5MB，以同时容纳完整 font_puhui_20_4 + font_puhui_16_4。
+# resources 5MB：UI + 聊天表情 EAF（已去掉未用 ic_s_music_album.eaf）。
+# Name,         Type, SubType, Offset,   Size, Flags
+nvs,            data, nvs,     0x9000,   0x6000,
+otadata,        data, ota,     0xF000,   0x2000,
+phy_init,       data, phy,     0x11000,  0x1000,
+model,          data, spiffs,  0x20000,  0xE0000,
+ota_0,          app,  ota_0,   0x100000, 0x500000,
+ota_1,          app,  ota_1,   0x600000, 0x500000,
+resources,      data, spiffs,  0xB00000, 0x500000,

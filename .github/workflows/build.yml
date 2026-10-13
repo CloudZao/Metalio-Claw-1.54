@@ -1,0 +1,221 @@
+name: Build Boards
+
+on:
+  push:
+    branches:
+      - main
+      - ci/* # for ci test
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Determine variants to build
+    runs-on: ubuntu-latest
+    outputs:
+      variants: ${{ steps.select.outputs.variants }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - id: list
+        name: Get all variant list
+        run: |
+          echo "all_variants=$(python scripts/release.py --list-boards --json)" >> $GITHUB_OUTPUT
+
+      - id: select
+        name: Select variants based on changes
+        env:
+          ALL_VARIANTS: ${{ steps.list.outputs.all_variants }}
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+
+          # push 到 main 分支，编译全部变体
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            echo "variants=$ALL_VARIANTS" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # pull_request 场景
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "Base: $BASE_SHA, Head: $HEAD_SHA"
+
+          CHANGED=$(git diff --name-only $BASE_SHA $HEAD_SHA || true)
+          echo -e "Changed files:\n$CHANGED"
+
+          NEED_ALL=0
+          declare -A AFFECTED
+          while IFS= read -r file; do
+            if [[ "$file" == main/* && "$file" != main/boards/* ]]; then
+              NEED_ALL=1
+            fi
+
+            if [[ "$file" == main/boards/common/* ]]; then
+              NEED_ALL=1
+            fi
+
+            if [[ "$file" == main/boards/* ]]; then
+              board=$(echo "$file" | cut -d '/' -f3)
+              AFFECTED[$board]=1
+            fi
+          done <<< "$CHANGED"
+
+          if [[ "$NEED_ALL" -eq 1 ]]; then
+            echo "variants=$ALL_VARIANTS" >> $GITHUB_OUTPUT
+          else
+            if [[ ${#AFFECTED[@]} -eq 0 ]]; then
+              # PR 未命中具体 board 时，仍编译默认板卡作为冒烟测试，避免跳过编译检查
+              echo 'variants=[{"board":"metalio-claw-4","name":"metalio-claw-4"}]' >> $GITHUB_OUTPUT
+            else
+              BOARDS_JSON=$(printf '%s\n' "${!AFFECTED[@]}" | sort -u | jq -R -s -c 'split("\n")[:-1]')
+              FILTERED=$(echo "$ALL_VARIANTS" | jq -c --argjson boards "$BOARDS_JSON" 'map(select(.board as $b | $boards | index($b)))')
+              if [[ "$FILTERED" == "[]" ]]; then
+                echo 'variants=[{"board":"metalio-claw-4","name":"metalio-claw-4"}]' >> $GITHUB_OUTPUT
+              else
+                echo "variants=$FILTERED" >> $GITHUB_OUTPUT
+              fi
+            fi
+          fi
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.variants != '[]' }}
+    strategy:
+      fail-fast: false  # 单个变体失败不影响其它变体
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.variants) }}
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:release-v5.5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build current variant
+        shell: bash
+        run: |
+          source $IDF_PATH/export.sh
+          python scripts/release.py ${{ matrix.board }} --name ${{ matrix.name }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Metalio-Claw-1.54_${{ matrix.name }}_${{ github.sha }}.bin
+          path: build/merged-binary.bin
+          if-no-files-found: error
+
+  compile-check:
+    name: Compile check
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Verify compile check passed
+        shell: bash
+        run: |
+          RESULT="${{ needs.build.result }}"
+          if [[ "$RESULT" == "success" ]]; then
+            echo "All required builds passed."
+            exit 0
+          fi
+          echo "Compile check failed (build result: $RESULT)." >&2
+          exit 1
+
+  publish-latest-release:
+    name: Publish Latest release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare release artifact
+        id: artifact
+        shell: bash
+        run: |
+          if [[ ! -f Metalio_Claw4_Latest.bin ]]; then
+            echo "Metalio_Claw4_Latest.bin not found in repository" >&2
+            exit 1
+          fi
+          TIMESTAMP="$(TZ=Asia/Shanghai date +%Y%m%d_%H%M)"
+          ARTIFACT="Metalio_Claw4_Latest_${TIMESTAMP}.bin"
+          cp Metalio_Claw4_Latest.bin "$ARTIFACT"
+          echo "path=$ARTIFACT" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release title and notes from PR
+        id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TITLE=""
+          BODY=""
+
+          # 从合并进本 commit 的 PR 读取 title / description
+          PR_JSON="$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0] // empty' 2>/dev/null || true)"
+          if [[ -n "$PR_JSON" && "$PR_JSON" != "null" ]]; then
+            TITLE="$(echo "$PR_JSON" | jq -r '.title // ""')"
+            BODY="$(echo "$PR_JSON" | jq -r '.body // ""')"
+            # GitHub 空 description 可能返回字面量 "null"
+            if [[ "$BODY" == "null" ]]; then
+              BODY=""
+            fi
+          fi
+
+          if [[ -z "$TITLE" ]]; then
+            TITLE="Latest"
+          fi
+
+          # Release title = PR title；Describe this release = PR description
+          {
+            printf '%s' "$BODY"
+            # 保证文件以换行结尾，便于 gh 读取
+            if [[ -n "$BODY" && "${BODY: -1}" != $'\n' ]]; then
+              printf '\n'
+            fi
+          } > release_notes.md
+
+          {
+            echo "title<<EOF"
+            echo "$TITLE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Release title: $TITLE"
+          echo "Release notes:"
+          cat release_notes.md
+
+      - name: Recreate Latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TITLE: ${{ steps.notes.outputs.title }}
+          ARTIFACT_PATH: ${{ steps.artifact.outputs.path }}
+        shell: bash
+        run: |
+          if gh release view latest --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Deleting existing latest release and tag..."
+            gh release delete latest --repo "${{ github.repository }}" -y --cleanup-tag
+          else
+            echo "No existing latest release."
+          fi
+
+          echo "Creating latest release with ${ARTIFACT_PATH} (title: ${RELEASE_TITLE})..."
+          gh release create latest "${ARTIFACT_PATH}" \
+            --repo "${{ github.repository }}" \
+            --title "${RELEASE_TITLE}" \
+            --notes-file release_notes.md \
+            --latest \
+            --target "${{ github.sha }}"

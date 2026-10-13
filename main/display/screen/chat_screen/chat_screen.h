@@ -1,0 +1,46 @@
+#pragma once
+
+#include "lvgl.h"
+#include "screen_util.h"
+
+// ---------------------------------------------------------------------------
+// ChatScreen
+//
+// 暗黑主题聊天页，两种视图：
+//   - 聊天：左右文字气泡会话（assistant/system 左，user 右）
+//   - 表情：EAF 全屏居中播放 A:{emotion}.eaf（resources mmap），底部字幕叠加；
+//           点击内容区可显隐 Header
+//
+// 语音会话：LOAD 时 SetVoiceUiDesired(true)；UNLOAD/返回 时 false，
+// 立刻 destroy 唤醒词 AFE（esp-sr 内部任务否则常驻高 CPU）。
+//
+// 消息 / 表情由 LVAdapterDisplay 注入；未激活时全屏拦截弹窗。
+// Header：返回 + 标题/状态 + 右侧菜单（表情/聊天/打断/清空）。
+// ---------------------------------------------------------------------------
+
+enum class ChatMsgDir : uint8_t {
+    Left,   // assistant / system -> 左侧深灰气泡
+    Right,  // user                -> 右侧墨绿气泡
+};
+
+class ChatScreen {
+ public:
+    static lv_obj_t* Create();
+    static void LifecycleCallback(screen_lifecycle_event_t event);
+
+    // 由 LVAdapterDisplay::SetChatMessage 在持有 esp_lv_adapter 锁后调用。
+    // 屏幕未加载时 no-op。
+    static void AddMessage(const char* text, ChatMsgDir dir);
+
+    // 清空消息列表（"清空" 按钮 / 外部调用）。
+    static void ClearMessages();
+
+    static bool IsActive();
+
+    // 刷新 header 标题旁的设备聊天状态；屏幕未加载时 no-op。
+    static void RefreshDeviceState();
+
+    // 按服务器完整情绪名切换 .eaf（非法名回退 neutral）。
+    // 路径：A:{emotion}.eaf（Flash resources 分区）
+    static void SetEmotion(const char* emotion);
+};

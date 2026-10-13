@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>星智 1.54 Metal — UI 预览</title>
+  <style>
+    :root {
+      --panel: 240px;
+      /* 卡片更窄，静止时左右约各露出 ~68px 相邻图标边缘 */
+      --slide: 104px;
+      --bg: #000;
+      --header: #12151c;
+      --card: #1b2030;
+      --chat-bg: #0e1116;
+      --div: #2a2f3a;
+      --muted: #9aa3b2;
+      --soft: #e5e7eb;
+      --accent: #3b82f6;
+      --assets: ../main/xingzhi-assets;
+      --flip-ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --flip-ms: 320ms;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      background:
+        radial-gradient(1200px 600px at 20% 0%, #1a2233 0%, transparent 55%),
+        radial-gradient(900px 500px at 90% 100%, #142018 0%, transparent 50%),
+        #0b0d12;
+      color: #dbe2f0;
+      padding: 40px 24px 64px;
+      user-select: none;
+    }
+
+    h1 { text-align: center; font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+    .sub { text-align: center; color: #8b95a8; font-size: 13px; margin-bottom: 28px; }
+    .stage { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+    .label { font-size: 13px; color: #a7b0c2; min-height: 20px; }
+
+    .bezel {
+      width: 280px;
+      padding: 18px 18px 28px;
+      border-radius: 28px;
+      background: linear-gradient(160deg, #22262f, #111318 60%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 24px 48px rgba(0,0,0,0.45);
+    }
+
+    .screen {
+      width: var(--panel);
+      height: var(--panel);
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+      background: var(--bg);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+    }
+
+    .view { position: absolute; inset: 0; display: none; }
+    .view.active { display: block; }
+
+    .status {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      background: #000;
+      font-size: 12px;
+      color: #fff;
+      position: relative;
+      z-index: 2;
+      flex-shrink: 0;
+    }
+    .status .left { display: flex; align-items: center; gap: 6px; min-width: 56px; }
+    .status .clock {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status .right { display: flex; align-items: center; justify-content: flex-end; min-width: 56px; }
+    .bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 10px; }
+    .bars i { display: block; width: 2.5px; background: #fff; border-radius: 1px; }
+    .bars i:nth-child(1) { height: 3px; }
+    .bars i:nth-child(2) { height: 5px; }
+    .bars i:nth-child(3) { height: 7px; }
+    .bars i:nth-child(4) { height: 10px; }
+    .bat {
+      width: 18px; height: 9px; border: 1px solid #fff; border-radius: 2px;
+      position: relative; padding: 1px;
+    }
+    .bat::after {
+      content: ""; position: absolute; right: -3px; top: 2px;
+      width: 1.5px; height: 4px; background: #fff; border-radius: 0 1px 1px 0;
+    }
+    .bat span { display: block; height: 100%; width: 70%; background: #fff; border-radius: 1px; }
+
+    .home-body {
+      height: calc(var(--panel) - 28px);
+      position: relative;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+      cursor: grab;
+      perspective: 720px;
+    }
+    .home-body:active { cursor: grabbing; }
+
+    .home-track {
+      display: flex;
+      height: 100%;
+      align-items: center;
+      will-change: transform;
+      transition: transform var(--flip-ms) var(--flip-ease);
+    }
+    .home-track.dragging,
+    .home-track.no-anim { transition: none !important; }
+
+    /* 落位 / 首尾跳转时关掉卡片缩放动画，避免「抖一下」 */
+    .home-body.snap-lock .home-card,
+    .home-body.snap-lock .home-card img,
+    .home-body.snap-lock .home-card .name {
+      transition: none !important;
+    }
+
+    /* 静止：中间大、两侧更小并露边 */
+    .home-card {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      flex: 0 0 var(--slide);
+      width: var(--slide);
+      opacity: 0.5;
+      transform: scale(0.86);
+      transform-origin: center center;
+      transition:
+        opacity var(--flip-ms) var(--flip-ease),
+        transform var(--flip-ms) var(--flip-ease),
+        filter var(--flip-ms) var(--flip-ease);
+    }
+    .home-track.dragging .home-card {
+      transition: none !important;
+    }
+    .home-card.active {
+      opacity: 1;
+      transform: scale(1);
+      z-index: 2;
+    }
+    .home-card img {
+      width: 64px;
+      height: 64px;
+      object-fit: contain;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      filter: brightness(0.72);
+      transition: width var(--flip-ms) var(--flip-ease), height var(--flip-ms) var(--flip-ease), filter var(--flip-ms);
+    }
+    .home-track.dragging .home-card img { transition: none !important; }
+    .home-card.active img {
+      width: 96px;
+      height: 96px;
+      filter: none;
+    }
+    .home-card .name {
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 0.5px;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: color var(--flip-ms), font-size var(--flip-ms);
+    }
+    .home-track.dragging .home-card .name { transition: none !important; }
+    .home-card.active .name {
+      font-size: 13px;
+      color: #fff;
+    }
+
+    /* —— 翻页效果（手机常见 3 种） —— */
+    /* 1. 滑动：默认，跟手平移 + 两侧露边 */
+    .home-body[data-effect="slide"] .home-card {
+      transform: scale(0.86);
+    }
+    .home-body[data-effect="slide"] .home-card.active {
+      transform: scale(1);
+    }
+
+    /* 2. 缩放：类似桌面图标聚焦 */
+    .home-body[data-effect="zoom"] .home-card {
+      transform: scale(0.68);
+      opacity: 0.35;
+    }
+    .home-body[data-effect="zoom"] .home-card.active {
+      transform: scale(1.06);
+      opacity: 1;
+    }
+
+    /* 3. 侧翻：类似封面流 / 相册 */
+    .home-body[data-effect="coverflow"] .home-card {
+      transform: scale(0.82) rotateY(38deg);
+      opacity: 0.42;
+    }
+    .home-body[data-effect="coverflow"] .home-card.prev {
+      transform: scale(0.82) rotateY(38deg);
+      transform-origin: right center;
+    }
+    .home-body[data-effect="coverflow"] .home-card.next {
+      transform: scale(0.82) rotateY(-38deg);
+      transform-origin: left center;
+    }
+    .home-body[data-effect="coverflow"] .home-card.active {
+      transform: scale(1) rotateY(0deg);
+      opacity: 1;
+    }
+
+    .dots {
+      position: absolute;
+      left: 0; right: 0; bottom: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 5px;
+      pointer-events: none;
+    }
+    .dots span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(255,255,255,0.28);
+    }
+    .dots span.on { background: #fff; width: 12px; border-radius: 3px; }
+
+    .app-shell {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      background: var(--chat-bg);
+      position: relative;
+    }
+    .app-header {
+      height: 32px;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+      background: var(--header);
+      border-bottom: 1px solid var(--div);
+      position: relative;
+      flex-shrink: 0;
+    }
+    .back {
+      width: 36px; height: 36px; border: 0; border-radius: 50%;
+      background: transparent; color: #fff; font-size: 20px; line-height: 1;
+      cursor: pointer; display: grid; place-items: center; z-index: 3;
+      position: relative;
+    }
+    .back:hover { background: rgba(255,255,255,0.08); }
+    .back img { width: 18px; height: 18px; display: block; pointer-events: none; }
+    .app-title {
+      position: absolute; left: 0; right: 0; text-align: center;
+      font-size: 15px; color: #fff; pointer-events: none;
+    }
+    .app-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: #3a4252 transparent;
+    }
+    .app-body::-webkit-scrollbar { width: 3px; }
+    .app-body::-webkit-scrollbar-thumb { background: #3a4252; border-radius: 2px; }
+    .app-body.nofit { overflow: hidden; display: flex; flex-direction: column; }
+
+    .list { display: flex; flex-direction: column; gap: 4px; }
+    .row {
+      height: 32px; border-radius: 10px; background: var(--card);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 10px; font-size: 12px; color: #fff; cursor: pointer;
+    }
+    .row:hover { background: #232a3d; }
+    .row.flip-opt.on {
+      outline: 1px solid var(--accent);
+      background: rgba(59,130,246,0.12);
+    }
+    .row .r { color: var(--muted); font-size: 11px; }
+    .row .r.on { color: #4ade80; }
+    .row .left { display: flex; align-items: center; gap: 8px; }
+    .row .ico { width: 22px; height: 22px; object-fit: contain; }
+
+    .seg {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;
+    }
+    .seg button {
+      height: 34px; border: 1px solid var(--div); border-radius: 10px;
+      background: #151922; color: var(--muted); font-size: 12px; cursor: pointer;
+    }
+    .seg button.on {
+      background: rgba(59,130,246,0.18);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .hint {
+      margin-top: 8px; text-align: center; color: var(--muted); font-size: 11px; line-height: 1.4;
+    }
+
+    /* —— 网络配置：主页精简 + 扫描配网弹窗 —— */
+    .net-page {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      height: 100%;
+      min-height: 0;
+    }
+    .net-page .seg { margin-bottom: 0; flex-shrink: 0; }
+    .net-status {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .net-status b { color: #fff; font-weight: 600; }
+    .net-scan-btn {
+      height: 40px;
+      border: 0;
+      border-radius: 20px;
+      background: linear-gradient(180deg, #3b82f6, #2563eb);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .net-scan-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .net-scan-btn.ghost {
+      background: #151922;
+      border: 1px solid var(--div);
+      color: var(--soft);
+      font-weight: 500;
+    }
+
+    .net-sheet {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      background: #0e1116;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .net-sheet-hd {
+      height: 36px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 6px;
+      background: var(--header);
+      border-bottom: 1px solid var(--div);
+    }
+    .net-sheet-hd .back {
+      width: 32px; height: 32px; border: 0; border-radius: 50%;
+      background: transparent; color: #fff; font-size: 18px; cursor: pointer;
+      display: grid; place-items: center;
+    }
+    .net-sheet-hd .ttl {
+      flex: 1; min-width: 0;
+      font-size: 13px; font-weight: 600; color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .net-sheet-hd .act {
+      border: 0; background: transparent; color: #93c5fd;
+      font-size: 12px; padding: 0 6px; cursor: pointer; white-space: nowrap;
+    }
+    .net-sheet-bd {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      scrollbar-width: thin;
+      scrollbar-color: #3a4252 transparent;
+    }
+    .net-ap {
+      min-height: 40px;
+      border-radius: 10px;
+      background: var(--card);
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .net-ap:hover { background: #232a3d; }
+    .net-ap .name {
+      flex: 1; min-width: 0;
+      font-size: 12px; color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .net-ap .meta {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--muted); font-size: 10px; flex-shrink: 0;
+    }
+    .net-bars {
+      display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px;
+    }
+    .net-bars i {
+      display: block; width: 2.5px; background: #4b5563; border-radius: 1px;
+    }
+    .net-bars[data-lv="1"] i:nth-child(1),
+    .net-bars[data-lv="2"] i:nth-child(-n+2),
+    .net-bars[data-lv="3"] i:nth-child(-n+3),
+    .net-bars[data-lv="4"] i { background: #60a5fa; }
+    .net-bars i:nth-child(1) { height: 3px; }
+    .net-bars i:nth-child(2) { height: 5px; }
+    .net-bars i:nth-child(3) { height: 8px; }
+    .net-bars i:nth-child(4) { height: 11px; }
+
+    .net-pwd-box {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 4px 2px;
+    }
+    .net-pwd-box label {
+      font-size: 11px; color: var(--muted);
+    }
+    .net-pwd-box input {
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--div);
+      background: #151922;
+      color: #fff;
+      padding: 0 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    .net-pwd-box input:focus { border-color: var(--accent); }
+    .net-pwd-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .net-pwd-actions button {
+      flex: 1;
+      height: 36px;
+      border-radius: 10px;
+      border: 0;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .net-pwd-actions .cancel {
+      background: #151922; color: var(--soft); border: 1px solid var(--div);
+    }
+    .net-pwd-actions .ok {
+      background: linear-gradient(180deg, #3b82f6, #2563eb); color: #fff;
+    }
+    .net-center {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 16px;
+    }
+    .net-spin {
+      width: 28px; height: 28px;
+      border: 3px solid #2a2f3a;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: netspin 0.8s linear infinite;
+    }
+    @keyframes netspin { to { transform: rotate(360deg); } }
+    .net-ok { color: #4ade80; font-size: 13px; font-weight: 600; }
+
+    /* 主题：横向分页，一页两个 */
+    .theme-pager {
+      display: flex;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      height: calc(100% - 4px);
+      gap: 0;
+    }
+    .theme-page {
+      flex: 0 0 100%;
+      scroll-snap-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      box-sizing: border-box;
+      padding: 8px 6px 0;
+    }
+    .theme-slot {
+      display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer;
+    }
+    .theme-card {
+      width: 88px; height: 88px; border-radius: 14px;
+      border: 2px solid transparent; overflow: hidden;
+      background: transparent;
+    }
+    .theme-card.on { border-color: var(--accent); }
+    .theme-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .theme-slot span { font-size: 11px; color: #fff; }
+    .theme-slot span.cur { color: var(--accent); }
+
+    /* 计算器：一屏内 */
+    .calc {
+      height: 100%;
+      display: grid;
+      grid-template-rows: 30px 1fr;
+      gap: 4px;
+    }
+    .calc-disp {
+      background: #1a1a1a; border-radius: 8px;
+      display: flex; align-items: flex-end; justify-content: flex-end;
+      padding: 4px 8px; font-size: 22px; color: #fff; font-weight: 500;
+    }
+    .calc-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(5, 1fr);
+      gap: 4px;
+      min-height: 0;
+    }
+    .calc-grid button {
+      border: 0; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+      min-height: 0;
+    }
+    .k-d { background: #333; color: #fff; }
+    .k-f { background: #a5a5a5; color: #1a1a1a; }
+    .k-o { background: #ff9500; color: #fff; }
+    .span2 { grid-column: span 2; }
+
+    /* 2048：一屏内 */
+    .g2048 {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+    .score {
+      height: 28px; border-radius: 8px; background: var(--card);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 10px; font-size: 12px; color: #fff; flex-shrink: 0;
+    }
+    .score b { font-size: 14px; }
+    .board {
+      flex: 1;
+      min-height: 0;
+      aspect-ratio: 1;
+      max-height: 100%;
+      width: min(100%, 160px);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(4, 1fr);
+      gap: 4px;
+      background: #1a1f2a;
+      padding: 4px;
+      border-radius: 8px;
+    }
+    .tile {
+      border-radius: 5px; background: #2a3142;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 700; color: #fff;
+    }
+    .t2 { background: #3b4a63; }
+    .t4 { background: #4a5d7a; }
+    .t8 { background: #f59e0b; color: #1a1200; }
+
+    /* 翻译 */
+    .tr {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+    .lang-bar {
+      display: grid;
+      grid-template-columns: 1fr 28px 1fr;
+      gap: 6px;
+      align-items: stretch;
+      flex-shrink: 0;
+    }
+    .lang-card {
+      background: var(--card); border-radius: 10px; padding: 8px 6px;
+      text-align: center; cursor: pointer; min-height: 52px;
+      display: flex; flex-direction: column; justify-content: center; gap: 2px;
+    }
+    .lang-card small { color: var(--muted); font-size: 10px; }
+    .lang-card b { color: #fff; font-size: 13px; font-weight: 600; }
+    .swap {
+      width: 28px; align-self: center; height: 28px; border-radius: 50%;
+      border: 1px solid var(--div); background: #151922; color: #fff;
+      font-size: 14px; cursor: pointer; display: grid; place-items: center;
+    }
+    .tr-result {
+      flex: 1; min-height: 48px; background: #151922; border-radius: 10px;
+      border: 1px solid var(--div); padding: 8px; font-size: 12px; color: var(--muted);
+      overflow: auto;
+    }
+    .tr-result .src { color: #fff; margin-bottom: 6px; }
+    .tr-result .dst { color: #93c5fd; }
+    .mic-btn {
+      height: 44px; border: 0; border-radius: 22px; cursor: pointer;
+      background: linear-gradient(180deg, #3b82f6, #2563eb);
+      color: #fff; font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      flex-shrink: 0;
+    }
+    .mic-btn img { width: 18px; height: 18px; filter: brightness(0) invert(1); }
+
+    /* 天气：左右排布，一屏装下不竖滚 */
+    .wx {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      gap: 4px;
+      overflow: hidden;
+    }
+    .wx-tabs {
+      display: flex;
+      gap: 2px;
+      flex-shrink: 0;
+      background: var(--card);
+      border-radius: 8px;
+      padding: 2px;
+    }
+    .wx-tabs button {
+      flex: 1;
+      height: 20px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      cursor: pointer;
+      padding: 0 2px;
+      white-space: nowrap;
+    }
+    .wx-tabs button.on {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    .wx-pane {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      display: none;
+      gap: 4px;
+    }
+    .wx-pane.on { display: flex; }
+
+    /* 今日：左图标气温 / 右详情 */
+    .wx-pane[data-pane="today"] {
+      flex-direction: row;
+      align-items: stretch;
+    }
+    .wx-hero {
+      width: 88px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      background: var(--card);
+      border-radius: 10px;
+      padding: 6px 4px;
+    }
+    .wx-hero img { width: 44px; height: 44px; object-fit: contain; }
+    .wx-temp { font-size: 26px; font-weight: 600; color: #fff; line-height: 1; }
+    .wx-meta { font-size: 10px; color: var(--soft); text-align: center; }
+    .wx-side {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .wx-card {
+      flex: 1;
+      background: var(--card);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .wx-card .l { color: var(--muted); margin-bottom: 2px; }
+    .wx-card .v { color: #fff; }
+
+    /* 6日：横滑 2 页 × 每页 3 列 */
+    .wx-pane[data-pane="forecast"] { flex-direction: column; gap: 4px; }
+    .wx-fc-pager {
+      flex: 1;
+      display: flex;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      min-height: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+    .wx-fc-pager::-webkit-scrollbar { display: none; }
+    .wx-fc-page {
+      flex: 0 0 100%;
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 0 2px;
+      box-sizing: border-box;
+      scroll-snap-align: center;
+      min-width: 0;
+      min-height: 0;
+    }
+    .wx-fc-dots {
+      height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .wx-fc-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      opacity: 0.6;
+    }
+    .wx-fc-dot.on {
+      background: #60a5fa;
+      opacity: 1;
+    }
+    .wx-fc-card {
+      background: #2a2f3a;
+      border-radius: 8px;
+      padding: 4px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .wx-fc-card.accent { background: #e0fb3c; }
+    .wx-fc-card .wk { font-size: 11px; font-weight: 600; color: #fff; }
+    .wx-fc-card.accent .wk { color: #1a1a1a; }
+    .wx-fc-card .sub { font-size: 10px; color: var(--muted); line-height: 1.1; }
+    .wx-fc-card.accent .sub { color: #404040; }
+    .wx-fc-card img { width: 24px; height: 24px; object-fit: contain; }
+    .wx-fc-card .tmp { font-size: 10px; color: #fff; font-weight: 600; white-space: nowrap; }
+    .wx-fc-card.accent .tmp { color: #1a1a1a; }
+
+    /* 24时：3×2 左右网格，不竖滚 */
+    .wx-pane[data-pane="hours"] { flex-direction: column; }
+    .wx-hours {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 4px;
+      min-height: 0;
+    }
+    .wx-hour {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 4px;
+      font-size: 10px;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      min-height: 0;
+    }
+    .wx-hour .t { color: var(--muted); font-size: 9px; }
+    .wx-hour .deg { color: #60a5fa; font-weight: 600; }
+    .wx-hour img { width: 20px; height: 20px; object-fit: contain; }
+
+    /* 指数：2×2 */
+    .wx-pane[data-pane="index"] { flex-direction: column; }
+    .wx-idxs {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 4px;
+      min-height: 0;
+    }
+    .wx-idx {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 6px;
+      font-size: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .wx-idx .n { color: #fff; font-weight: 600; margin-bottom: 2px; font-size: 10px; }
+    .wx-idx .d { color: var(--muted); font-size: 9px; line-height: 1.25; }
+
+    .chat {
+      height: 100%; display: flex; flex-direction: column;
+      background: var(--chat-bg); padding: 8px; gap: 8px;
+    }
+    .bubble {
+      align-self: flex-start; max-width: 85%; background: #1e2533;
+      color: #fff; border-radius: 12px; padding: 8px 10px; font-size: 12px; line-height: 1.35;
+    }
+    .bubble.me { align-self: flex-end; background: #2563eb; }
+    .chat-hint { margin-top: auto; text-align: center; color: var(--muted); font-size: 11px; }
+
+    .nav {
+      margin-top: 16px; display: flex; justify-content: center; gap: 28px;
+    }
+    .nav button {
+      width: 40px; height: 40px; border: 0; border-radius: 50%;
+      background: rgba(255,255,255,0.06); color: #c5ccd8;
+      font-size: 16px; cursor: pointer;
+      display: grid; place-items: center;
+    }
+    .nav button:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .nav button:active { transform: scale(0.94); }
+
+    .tips {
+      max-width: 560px; margin: 28px auto 0; color: #8b95a8; font-size: 13px; line-height: 1.7;
+    }
+    .tips code {
+      background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px; font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>星智 1.54 Metal · UI 预览</h1>
+  <p class="sub">240×240 · 工程图标 · 主页左右滑 · App 区可上下滚</p>
+
+  <div class="stage">
+    <div class="label" id="label">主页 · 聊天</div>
+    <div class="bezel">
+      <div class="screen" id="screen">
+        <div class="view active" id="view-home">
+          <div class="status">
+            <div class="left">
+              <div class="bars"><i></i><i></i><i></i><i></i></div>
+              <span id="netBadge">4G</span>
+            </div>
+            <div class="clock" data-clock>--</div>
+            <div class="right"><div class="bat"><span></span></div></div>
+          </div>
+          <div class="home-body" id="homeBody">
+            <div class="home-track" id="homeTrack"></div>
+            <div class="dots" id="dots"></div>
+          </div>
+        </div>
+        <div class="view" id="view-app"></div>
+      </div>
+      <div class="nav">
+        <button type="button" id="navPrev" title="上一页 / 返回">◁</button>
+        <button type="button" id="navHome" title="双击回聊天首页">○</button>
+        <button type="button" id="navNext" title="下一页">▷</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tips">
+    <p>操作：左右拖拽跟手滚动（首尾循环）；设置 → 翻页效果 可选「滑动 / 缩放 / 侧翻」；点中间图标进 App；顶栏「&lt;」或下方 ◁ 返回；下方 ○ <b>双击</b>回到聊天首页。</p>
+    <p>图标路径：<code>main/xingzhi-assets/</code>（请用本地文件打开或起静态服务）。</p>
+  </div>
+
+<script>
+const ASSET = "../main/xingzhi-assets";
+const icon = (name) => `${ASSET}/${name}`;
+
+const HOME_APPS = [
+  { id: "chat", name: "聊天", file: "ic_app_home_theme1_chat.png" },
+  { id: "ai_image", name: "AI 绘图", file: "ic_app_home_theme1_ai_image_gen.png" },
+  { id: "digital", name: "数字人", file: "ic_app_home_theme1_digital_people.png" },
+  { id: "translate", name: "翻译", file: "ic_app_home_theme1_translate.png" },
+  { id: "weather", name: "天气", file: "ic_app_home_theme1_weather.png" },
+  { id: "calculator", name: "计算器", file: "ic_app_home_theme1_calculator.png" },
+  { id: "game2048", name: "2048", file: "ic_app_home_theme1_2048.png" },
+  { id: "settings", name: "设置", file: "ic_app_home_theme1_settings.png" },
+];
+
+const SETTINGS_ITEMS = [
+  // 连接 → 显示外观 → 反馈 → 升级 → 关于（翻页效果：SPNG 不可缩放，暂不做侧边/特效）
+  { id: "network", name: "网络配置", icon: "ic_app_home_theme1_wifi.png", right: "4G" },
+  { id: "theme", name: "主题", icon: "ic_app_home_theme1_theme.png", right: "主题 1" },
+  { id: "backlight", name: "背光", icon: "ic_app_home_theme1_backlight.png", right: "80%" },
+  { id: "vibrate", name: "震动", icon: "ic_app_home_theme1_vibrate.png", right: "开" },
+  { id: "ota", name: "OTA 升级", icon: "ic_app_home_theme1_settings.png", right: "2.2.3" },
+  { id: "info", name: "系统信息", icon: "ic_app_home_theme1_info.png", right: "" },
+];
+
+const FLIP_EFFECTS = [
+  { id: "slide", name: "滑动", desc: "跟手平移（侧边露边暂缓，待多尺寸图标）" },
+];
+
+let index = 0;          // 逻辑页：0 .. n-1
+let trackPos = 1;       // 轨道位：含首尾克隆，真实页从 1 开始
+let fromSettings = false;
+let currentAppId = null;
+let netMode = "4g"; // wifi | 4g
+let themeId = 1;
+let flipEffect = "slide";
+
+/** 网络配网弹窗状态（仅预览） */
+let netSheet = null; // null | { step, aps, selected, pwd }
+const NET_MOCK_APS = [
+  { ssid: "Home_5G", rssi: 4, lock: true },
+  { ssid: "Office-WiFi", rssi: 3, lock: true },
+  { ssid: "Guest", rssi: 2, lock: false },
+  { ssid: "TP-LINK_8A2C", rssi: 2, lock: true },
+  { ssid: "Xiaomi_AX", rssi: 1, lock: true },
+  { ssid: "CMCC-Free", rssi: 1, lock: false },
+];
+
+const PANEL = 240;
+const SLIDE = 104;
+const SIDE_PAD = (PANEL - SLIDE) / 2; // 68：左右各多露约 20px
+const N = () => HOME_APPS.length;
+
+function flipEffectName() {
+  return (FLIP_EFFECTS.find((e) => e.id === flipEffect) || FLIP_EFFECTS[0]).name;
+}
+
+function applyFlipEffectAttr() {
+  const body = document.getElementById("homeBody");
+  if (body) body.dataset.effect = flipEffect;
+}
+
+const labelEl = document.getElementById("label");
+const homeTrack = document.getElementById("homeTrack");
+const dotsEl = document.getElementById("dots");
+const viewHome = document.getElementById("view-home");
+const viewApp = document.getElementById("view-app");
+
+function cardHtml(a, extraClass = "") {
+  return `
+    <div class="home-card ${extraClass}" data-id="${a.id}">
+      <img src="${icon(a.file)}" alt="${a.name}" draggable="false"
+           onerror="this.style.opacity=0.3" />
+      <div class="name">${a.name}</div>
+    </div>`;
+}
+
+function renderHome() {
+  const n = N();
+  const last = HOME_APPS[n - 1];
+  const first = HOME_APPS[0];
+  // 首尾克隆，实现循环衔接
+  homeTrack.innerHTML =
+    cardHtml(last, "clone") +
+    HOME_APPS.map((a) => cardHtml(a)).join("") +
+    cardHtml(first, "clone");
+  dotsEl.innerHTML = HOME_APPS.map((_, i) =>
+    `<span class="${i === index ? "on" : ""}"></span>`).join("");
+  trackPos = index + 1;
+  applyHomeTransform(false);
+}
+
+function trackOffset(pos, dragDx = 0) {
+  // 让当前卡居中：左边露出上一张一截
+  return SIDE_PAD - pos * SLIDE + dragDx;
+}
+
+function syncActiveCard(visualPos = trackPos) {
+  const cards = [...homeTrack.querySelectorAll(".home-card")];
+  const nearest = Math.round(visualPos);
+  cards.forEach((el, i) => {
+    el.classList.toggle("active", i === nearest);
+    el.classList.toggle("prev", i === nearest - 1);
+    el.classList.toggle("next", i === nearest + 1);
+  });
+}
+
+function setTrackX(px, animate) {
+  homeTrack.classList.toggle("dragging", !animate);
+  homeTrack.classList.toggle("no-anim", !animate);
+  homeTrack.style.transform = `translateX(${px}px)`;
+}
+
+let settleTimer = 0;
+
+function clearSettleTimer() {
+  if (settleTimer) {
+    clearTimeout(settleTimer);
+    settleTimer = 0;
+  }
+}
+
+function unlockSnap() {
+  homeBody.classList.remove("snap-lock");
+}
+
+function applyHomeTransform(animate) {
+  applyFlipEffectAttr();
+  if (animate) {
+    // 只让轨道平移有过渡；卡片尺寸切换瞬时完成，避免叠动画抖动
+    homeBody.classList.add("snap-lock");
+    clearSettleTimer();
+  }
+  setTrackX(trackOffset(trackPos), animate);
+  syncActiveCard(trackPos);
+  [...dotsEl.children].forEach((d, i) => d.classList.toggle("on", i === index));
+  labelEl.textContent = `主页 · ${HOME_APPS[index].name}`;
+  if (!animate) {
+    // 强制一帧无过渡后再解锁，防止归位时闪缩放
+    void homeTrack.offsetWidth;
+    unlockSnap();
+  }
+}
+
+function normalizeLoop() {
+  const n = N();
+  if (trackPos !== 0 && trackPos !== n + 1) {
+    unlockSnap();
+    return false;
+  }
+  // 克隆页 → 真实页：瞬时跳转，且禁止卡片过渡
+  homeBody.classList.add("snap-lock");
+  if (trackPos === 0) {
+    trackPos = n;
+    index = n - 1;
+  } else {
+    trackPos = 1;
+    index = 0;
+  }
+  setTrackX(trackOffset(trackPos), false);
+  syncActiveCard(trackPos);
+  [...dotsEl.children].forEach((d, i) => d.classList.toggle("on", i === index));
+  labelEl.textContent = `主页 · ${HOME_APPS[index].name}`;
+  void homeTrack.offsetWidth;
+  unlockSnap();
+  return true;
+}
+
+homeTrack.addEventListener("transitionend", (e) => {
+  if (e.target !== homeTrack) return;
+  if (e.propertyName !== "transform") return;
+  clearSettleTimer();
+  if (!normalizeLoop()) unlockSnap();
+});
+
+function flipBy(dir) {
+  const n = N();
+  trackPos += dir;
+  if (dir > 0) index = (index + 1) % n;
+  else index = (index - 1 + n) % n;
+  applyHomeTransform(true);
+  // 仅作兜底（部分环境 transitionend 不可靠）；到点只归位一次
+  clearSettleTimer();
+  settleTimer = setTimeout(() => {
+    settleTimer = 0;
+    if (!normalizeLoop()) unlockSnap();
+  }, 380);
+}
+
+/* —— 跟手拖拽：必须 capture，否则移出区域就收不到 move —— */
+const drag = {
+  on: false,
+  pid: null,
+  x0: 0,
+  y0: 0,
+  dx: 0,
+  dy: 0,
+  t0: 0,
+  axis: null, // null | "x" | "y"
+};
+const homeBody = document.getElementById("homeBody");
+const TAP_MAX = 10;
+const SWIPE_MIN = 28;
+const AXIS_LOCK = 6;
+
+homeBody.addEventListener("pointerdown", (e) => {
+  if (e.button != null && e.button !== 0) return;
+  drag.on = true;
+  drag.pid = e.pointerId;
+  drag.x0 = e.clientX;
+  drag.y0 = e.clientY;
+  drag.dx = 0;
+  drag.dy = 0;
+  drag.t0 = performance.now();
+  drag.axis = null;
+  try { homeBody.setPointerCapture(e.pointerId); } catch (_) {}
+});
+
+homeBody.addEventListener("pointermove", (e) => {
+  if (!drag.on || (drag.pid != null && e.pointerId !== drag.pid)) return;
+  drag.dx = e.clientX - drag.x0;
+  drag.dy = e.clientY - drag.y0;
+
+  if (drag.axis == null) {
+    if (Math.abs(drag.dx) < AXIS_LOCK && Math.abs(drag.dy) < AXIS_LOCK) return;
+    drag.axis = Math.abs(drag.dx) >= Math.abs(drag.dy) ? "x" : "y";
+  }
+  if (drag.axis !== "x") return;
+
+  e.preventDefault();
+  // 1:1 跟手滚动
+  setTrackX(trackOffset(trackPos, drag.dx), false);
+  // 拖到一半时切换高亮，看起来在「滚」
+  syncActiveCard(trackPos - drag.dx / SLIDE);
+});
+
+function endDrag(e) {
+  if (!drag.on) return;
+  if (e && drag.pid != null && e.pointerId !== drag.pid) return;
+  const dx = drag.dx;
+  const dy = drag.dy;
+  const dt = Math.max(1, performance.now() - drag.t0);
+  const vx = dx / dt; // px/ms
+  drag.on = false;
+  drag.pid = null;
+  drag.axis = null;
+
+  const isTap = Math.abs(dx) <= TAP_MAX && Math.abs(dy) <= TAP_MAX;
+  if (isTap) {
+    applyHomeTransform(true);
+    openApp(HOME_APPS[index].id, false);
+    return;
+  }
+
+  // 距离或速度达到阈值即翻页
+  const goNext = dx < -SWIPE_MIN || vx < -0.35;
+  const goPrev = dx > SWIPE_MIN || vx > 0.35;
+  if (goNext) flipBy(1);
+  else if (goPrev) flipBy(-1);
+  else applyHomeTransform(true);
+}
+
+homeBody.addEventListener("pointerup", endDrag);
+homeBody.addEventListener("pointercancel", endDrag);
+
+function shell(title, bodyHtml, { noScroll = false, overlayHtml = "" } = {}) {
+  const net = netMode === "wifi" ? "WiFi" : "4G";
+  return `
+    <div class="app-shell">
+      <div class="status">
+        <div class="left">
+          <div class="bars"><i></i><i></i><i></i><i></i></div>
+          <span>${net}</span>
+        </div>
+        <div class="clock" data-clock>--</div>
+        <div class="right"><div class="bat"><span></span></div></div>
+      </div>
+      <div class="app-header">
+        <button class="back" type="button" data-action="back" title="返回">
+          <img src="${icon("ic_app_back.png")}" alt="‹" draggable="false"
+               onerror="this.replaceWith(document.createTextNode('‹'))" />
+        </button>
+        <div class="app-title">${title}</div>
+      </div>
+      <div class="app-body${noScroll ? " nofit" : ""}">${bodyHtml}</div>
+      ${overlayHtml || ""}
+    </div>`;
+}
+
+function contentFor(id) {
+  switch (id) {
+    case "chat":
+      return shell("聊天", `
+        <div class="chat">
+          <div class="bubble">你好，我是小智。</div>
+          <div class="bubble me">介绍一下你自己</div>
+          <div class="chat-hint">按住说话 · 点返回回主页</div>
+        </div>`, { noScroll: true });
+
+    case "settings":
+      return shell("设置", `
+        <div class="list">
+          ${SETTINGS_ITEMS.map((it) => {
+            let right = it.right;
+            if (it.id === "network") right = netMode === "wifi" ? "Wi-Fi" : "4G";
+            if (it.id === "theme") right = `主题 ${themeId}`;
+            if (it.id === "flip") right = flipEffectName();
+            return `
+            <div class="row" data-sub="${it.id}">
+              <span class="left">
+                <img class="ico" src="${icon(it.icon)}" alt=""
+                     onerror="this.style.display='none'" />
+                ${it.name}
+              </span>
+              <span class="r">${right}</span>
+            </div>`;
+          }).join("")}
+        </div>`);
+
+    case "network":
+      return shell("网络配置", `
+        <div class="net-page">
+          <div class="seg" id="netSeg">
+            <button type="button" data-mode="wifi" class="${netMode === "wifi" ? "on" : ""}">Wi-Fi</button>
+            <button type="button" data-mode="4g" class="${netMode === "4g" ? "on" : ""}">4G</button>
+          </div>
+          <div class="net-status">${networkStatusHtml()}</div>
+          <div class="list" id="netList">${networkRows()}</div>
+        </div>
+      `, { noScroll: true, overlayHtml: netSheetHtml() });
+
+    case "info":
+      return shell("系统信息", `
+        <div class="list">
+          <div class="row"><span>型号</span><span class="r">星智·Metal 1.54</span></div>
+          <div class="row"><span>固件版本</span><span class="r">2.2.3</span></div>
+          <div class="row"><span>电量</span><span class="r">72%</span></div>
+          <div class="row"><span>激活</span><span class="r on">已激活</span></div>
+        </div>`);
+
+    case "theme":
+      return shell("主题", `
+        <div class="theme-pager">
+          <div class="theme-page">
+            ${[1,2].map((n) => `
+            <div class="theme-slot" data-theme="${n}">
+              <div class="theme-card ${themeId === n ? "on" : ""}">
+                <img src="${icon(`ic_app_home_theme${n}_theme.png`)}" alt="主题${n}"
+                     onerror="this.src='${icon(`ic_app_home_theme${n}_chat.png`)}'" />
+              </div>
+              <span class="${themeId === n ? "cur" : ""}">主题 ${n}${themeId === n ? "  当前" : ""}</span>
+            </div>`).join("")}
+          </div>
+          <div class="theme-page">
+            ${[3,4].map((n) => `
+            <div class="theme-slot" data-theme="${n}">
+              <div class="theme-card ${themeId === n ? "on" : ""}">
+                <img src="${icon(`ic_app_home_theme${n}_theme.png`)}" alt="主题${n}"
+                     onerror="this.src='${icon(`ic_app_home_theme${n}_chat.png`)}'" />
+              </div>
+              <span class="${themeId === n ? "cur" : ""}">主题 ${n}${themeId === n ? "  当前" : ""}</span>
+            </div>`).join("")}
+          </div>
+        </div>
+        <div class="hint">左右滑切换；一页两个主题</div>`);
+
+    case "flip":
+      return shell("翻页效果", `
+        <div class="list">
+          ${FLIP_EFFECTS.map((e) => `
+            <div class="row flip-opt ${flipEffect === e.id ? "on" : ""}" data-flip="${e.id}"
+                 style="height:auto;min-height:40px;padding:6px 10px;align-items:flex-start;flex-direction:column;gap:2px">
+              <div style="display:flex;width:100%;justify-content:space-between;align-items:center">
+                <span>${e.name}</span>
+                <span class="r ${flipEffect === e.id ? "on" : ""}">${flipEffect === e.id ? "当前" : ""}</span>
+              </div>
+              <span style="font-size:10px;color:var(--muted)">${e.desc}</span>
+            </div>`).join("")}
+        </div>
+        <div class="hint">返回主页左右拖可跟手预览；静止时两侧会露出相邻图标</div>`);
+
+    case "vibrate":
+      return shell("震动", `
+        <div class="list">
+          <div class="row"><span>震动反馈</span><span class="r on">开</span></div>
+          <div class="row"><span>强度</span><span class="r">中</span></div>
+        </div>`);
+
+    case "backlight":
+      return shell("背光", `
+        <div class="list">
+          <div class="row"><span>亮度</span><span class="r">80%</span></div>
+          <div class="row"><span>自动息屏</span><span class="r">30 秒</span></div>
+        </div>`);
+
+    case "calculator":
+      return shell("计算器", `
+        <div class="calc">
+          <div class="calc-disp">0</div>
+          <div class="calc-grid">
+            <button class="k-f">C</button><button class="k-f">±</button>
+            <button class="k-f">%</button><button class="k-o">÷</button>
+            <button class="k-d">7</button><button class="k-d">8</button>
+            <button class="k-d">9</button><button class="k-o">×</button>
+            <button class="k-d">4</button><button class="k-d">5</button>
+            <button class="k-d">6</button><button class="k-o">−</button>
+            <button class="k-d">1</button><button class="k-d">2</button>
+            <button class="k-d">3</button><button class="k-o">+</button>
+            <button class="k-d span2">0</button><button class="k-d">.</button>
+            <button class="k-o">=</button>
+          </div>
+        </div>`, { noScroll: true });
+
+    case "game2048": {
+      const cells = [2,0,4,0, 0,8,0,2, 0,0,4,0, 2,0,0,0];
+      return shell("2048", `
+        <div class="g2048">
+          <div class="score"><span>分数</span><b>128</b></div>
+          <div class="board">
+            ${cells.map((v) =>
+              `<div class="tile ${v ? "t" + v : ""}">${v || ""}</div>`).join("")}
+          </div>
+        </div>`, { noScroll: true });
+    }
+
+    case "translate":
+      return shell("翻译", `
+        <div class="tr">
+          <div class="lang-bar">
+            <div class="lang-card"><small>源语言</small><b>中文</b></div>
+            <button class="swap" type="button" title="交换">⇄</button>
+            <div class="lang-card"><small>目标语言</small><b>English</b></div>
+          </div>
+          <div class="tr-result">
+            <div class="src">你好，世界</div>
+            <div class="dst">Hello, world</div>
+          </div>
+          <button class="mic-btn" type="button">
+            <img src="${icon("ic_app_home_theme1_translate.png")}" alt=""
+                 onerror="this.remove()" />
+            按住说话开始翻译
+          </button>
+        </div>`, { noScroll: true });
+
+    case "weather":
+      return shell("天气", `
+        <div class="wx" id="wxRoot">
+          <div class="wx-tabs" id="wxTabs">
+            <button type="button" data-wx="today" class="on">今日</button>
+            <button type="button" data-wx="forecast">6日</button>
+            <button type="button" data-wx="hours">24时</button>
+            <button type="button" data-wx="index">指数</button>
+          </div>
+          <div class="wx-pane on" data-pane="today">
+            <div class="wx-hero">
+              <img src="${icon("ic_s_weather_100.png")}" alt="晴"
+                   onerror="this.style.display='none'" />
+              <div class="wx-temp">26°</div>
+              <div class="wx-meta">晴 · 深圳</div>
+            </div>
+            <div class="wx-side">
+              <div class="wx-card">
+                <div class="l">湿度 / 风力</div>
+                <div class="v">58% · 东南风 2 级</div>
+              </div>
+              <div class="wx-card">
+                <div class="l">今日气温</div>
+                <div class="v">22° ~ 28°</div>
+              </div>
+              <div class="wx-card">
+                <div class="l">体感 / 紫外线</div>
+                <div class="v">27° · 中等</div>
+              </div>
+            </div>
+          </div>
+          <div class="wx-pane" data-pane="forecast">
+            <div class="wx-fc-pager" id="wxFcPager">
+              ${(() => {
+                const days = [
+                  { wk: "明天", d: "08/20", ic: "101", lo: 23, hi: 29, day: "多云" },
+                  { wk: "周五", d: "08/21", ic: "100", lo: 24, hi: 31, day: "晴" },
+                  { wk: "周六", d: "08/22", ic: "300", lo: 22, hi: 27, day: "阵雨" },
+                  { wk: "周日", d: "08/23", ic: "305", lo: 21, hi: 26, day: "小雨" },
+                  { wk: "周一", d: "08/24", ic: "104", lo: 23, hi: 28, day: "阴" },
+                  { wk: "周二", d: "08/25", ic: "100", lo: 24, hi: 30, day: "晴" },
+                ];
+                const card = (f, i) => `
+                  <div class="wx-fc-card ${i % 2 === 1 ? "accent" : ""}">
+                    <div class="wk">${f.wk}</div>
+                    <div class="sub">${f.d}</div>
+                    <img src="${icon(`ic_s_weather_${f.ic}.png`)}" alt="${f.day}"
+                         onerror="this.style.display='none'" />
+                    <div class="tmp">${f.lo}~${f.hi}°</div>
+                    <div class="sub">${f.day}</div>
+                  </div>`;
+                return [0, 1].map((p) => `
+                  <div class="wx-fc-page">
+                    ${days.slice(p * 3, p * 3 + 3).map((f, i) => card(f, p * 3 + i)).join("")}
+                  </div>`).join("");
+              })()}
+            </div>
+            <div class="wx-fc-dots" id="wxFcDots">
+              <span class="wx-fc-dot on"></span>
+              <span class="wx-fc-dot"></span>
+            </div>
+          </div>
+          <div class="wx-pane" data-pane="hours">
+            <div class="wx-hours">
+              ${[
+                { t: "09:00", deg: 24, ic: "100", txt: "晴" },
+                { t: "12:00", deg: 27, ic: "100", txt: "晴" },
+                { t: "15:00", deg: 28, ic: "101", txt: "多云" },
+                { t: "18:00", deg: 26, ic: "101", txt: "多云" },
+                { t: "21:00", deg: 24, ic: "104", txt: "阴" },
+                { t: "00:00", deg: 23, ic: "104", txt: "阴" },
+              ].map((h) => `
+                <div class="wx-hour">
+                  <span class="t">${h.t}</span>
+                  <img src="${icon(`ic_s_weather_${h.ic}.png`)}" alt=""
+                       onerror="this.remove()" />
+                  <span class="deg">${h.deg}°</span>
+                  <span class="t">${h.txt}</span>
+                </div>`).join("")}
+            </div>
+          </div>
+          <div class="wx-pane" data-pane="index">
+            <div class="wx-idxs">
+              ${[
+                { n: "穿衣 · 较舒适", d: "长袖衬衫、薄外套" },
+                { n: "紫外线 · 中等", d: "外出注意防晒" },
+                { n: "运动 · 适宜", d: "适合户外运动" },
+                { n: "空气 · 良", d: "可正常户外活动" },
+              ].map((x) => `
+                <div class="wx-idx"><div class="n">${x.n}</div><div class="d">${x.d}</div></div>
+              `).join("")}
+            </div>
+          </div>
+        </div>`, { noScroll: true });
+
+    case "ai_image":
+      return shell("AI 绘图", `<div class="hint" style="margin-top:48px">描述画面，生成图片</div>`);
+    case "digital":
+      return shell("数字人", `<div class="hint" style="margin-top:48px">数字人对话预览</div>`);
+    case "ota":
+      return shell("OTA 升级", `
+        <div class="list">
+          <div class="row"><span>当前版本</span><span class="r">2.2.3</span></div>
+          <div class="row"><span>检查更新</span><span class="r">›</span></div>
+        </div>`);
+    default:
+      return shell(id, `<div class="hint">预览占位</div>`);
+  }
+}
+
+function networkStatusHtml() {
+  if (netMode === "wifi") {
+    return `上网方式 · 切换后设备将重启<br/><b>当前：Wi-Fi · 未连接</b>`;
+  }
+  return `上网方式 · 切换后设备将重启<br/><b>当前：4G · 已连接</b>`;
+}
+
+function networkRows() {
+  if (netMode === "wifi") {
+    return `
+      <button type="button" class="net-scan-btn" id="netScanBtn">扫描附近网络</button>
+      <div class="row"><span>已保存网络</span><span class="r">2</span></div>
+      <div class="hint" style="margin:0;text-align:left">扫描结果在弹窗中选择并连接，主页不再塞列表</div>`;
+  }
+  return `
+    <div class="row"><span>SIM 卡</span><span class="r">SIM1</span></div>
+    <div class="row"><span>信号</span><span class="r">良好</span></div>
+    <div class="row"><span>IP</span><span class="r">10.0.0.12</span></div>`;
+}
+
+function netBarsHtml(lv) {
+  return `<span class="net-bars" data-lv="${lv}"><i></i><i></i><i></i><i></i></span>`;
+}
+
+function netSheetHtml() {
+  if (!netSheet || netMode !== "wifi") return "";
+  const step = netSheet.step;
+  let title = "附近 Wi-Fi";
+  let act = "";
+  let body = "";
+
+  if (step === "scanning") {
+    title = "扫描中";
+    body = `<div class="net-center"><div class="net-spin"></div>正在扫描附近网络…</div>`;
+  } else if (step === "list") {
+    act = `<button type="button" class="act" data-net="rescan">重扫</button>`;
+    if (!netSheet.aps.length) {
+      body = `<div class="net-center">未发现网络<br/>点右上「重扫」再试</div>`;
+    } else {
+      body = netSheet.aps.map((ap, i) => `
+        <div class="net-ap" data-net-ap="${i}">
+          <div class="name">${ap.ssid}</div>
+          <div class="meta">${ap.lock ? "🔒" : "开放"}${netBarsHtml(ap.rssi)}</div>
+        </div>`).join("");
+    }
+  } else if (step === "pwd") {
+    const ap = netSheet.selected;
+    title = `连接 ${ap.ssid}`;
+    body = `
+      <div class="net-pwd-box">
+        <label>${ap.lock ? "输入 Wi-Fi 密码" : "开放网络，可直接连接"}</label>
+        <input id="netPwdInput" type="password" placeholder="密码" ${ap.lock ? "" : "disabled value=''"} />
+        <div class="net-pwd-actions">
+          <button type="button" class="cancel" data-net="back-list">取消</button>
+          <button type="button" class="ok" data-net="connect">连接</button>
+        </div>
+      </div>`;
+  } else if (step === "connecting") {
+    title = "连接中";
+    body = `<div class="net-center"><div class="net-spin"></div>正在连接 ${netSheet.selected.ssid}…</div>`;
+  } else if (step === "done") {
+    title = "已连接";
+    body = `
+      <div class="net-center">
+        <div class="net-ok">已连接 ${netSheet.selected.ssid}</div>
+        <div>预览：固件侧会倒计时重启</div>
+        <button type="button" class="net-scan-btn ghost" data-net="close" style="width:100%;margin-top:8px">完成</button>
+      </div>`;
+  }
+
+  return `
+    <div class="net-sheet" id="netSheet">
+      <div class="net-sheet-hd">
+        <button type="button" class="back" data-net="close" title="关闭">‹</button>
+        <div class="ttl">${title}</div>
+        ${act}
+      </div>
+      <div class="net-sheet-bd">${body}</div>
+    </div>`;
+}
+
+function openNetScanSheet() {
+  netSheet = { step: "scanning", aps: [], selected: null, pwd: "" };
+  openApp("network", fromSettings);
+  setTimeout(() => {
+    if (!netSheet || netSheet.step !== "scanning") return;
+    netSheet = { ...netSheet, step: "list", aps: NET_MOCK_APS.slice() };
+    openApp("network", fromSettings);
+  }, 900);
+}
+
+function closeNetSheet() {
+  netSheet = null;
+  openApp("network", fromSettings);
+}
+
+function bindNetworkSheet() {
+  const sheet = viewApp.querySelector("#netSheet");
+  if (!sheet) return;
+
+  sheet.querySelectorAll("[data-net]").forEach((el) => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const act = el.dataset.net;
+      if (act === "close") {
+        closeNetSheet();
+      } else if (act === "rescan") {
+        openNetScanSheet();
+      } else if (act === "back-list") {
+        netSheet = { ...netSheet, step: "list", selected: null };
+        openApp("network", fromSettings);
+      } else if (act === "connect") {
+        const input = viewApp.querySelector("#netPwdInput");
+        const pwd = input ? input.value : "";
+        if (netSheet.selected?.lock && !pwd) {
+          if (input) {
+            input.focus();
+            input.style.borderColor = "#f87171";
+          }
+          return;
+        }
+        netSheet = { ...netSheet, step: "connecting", pwd };
+        openApp("network", fromSettings);
+        setTimeout(() => {
+          if (!netSheet || netSheet.step !== "connecting") return;
+          netSheet = { ...netSheet, step: "done" };
+          openApp("network", fromSettings);
+        }, 1000);
+      }
+    };
+  });
+
+  sheet.querySelectorAll("[data-net-ap]").forEach((el) => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const i = Number(el.dataset.netAp);
+      const ap = netSheet.aps[i];
+      if (!ap) return;
+      if (!ap.lock) {
+        netSheet = { ...netSheet, step: "connecting", selected: ap, pwd: "" };
+        openApp("network", fromSettings);
+        setTimeout(() => {
+          if (!netSheet || netSheet.step !== "connecting") return;
+          netSheet = { ...netSheet, step: "done" };
+          openApp("network", fromSettings);
+        }, 800);
+        return;
+      }
+      netSheet = { ...netSheet, step: "pwd", selected: ap };
+      openApp("network", fromSettings);
+      requestAnimationFrame(() => {
+        const input = viewApp.querySelector("#netPwdInput");
+        if (input) input.focus();
+      });
+    };
+  });
+}
+
+function goBack() {
+  if (!viewApp.classList.contains("active")) return;
+  if (currentAppId === "network" && netSheet) {
+    if (netSheet.step === "pwd" || netSheet.step === "connecting") {
+      netSheet = { ...netSheet, step: "list", selected: null };
+      openApp("network", fromSettings);
+      return;
+    }
+    closeNetSheet();
+    return;
+  }
+  if (fromSettings && currentAppId !== "settings") {
+    openApp("settings", false);
+  } else {
+    showHome();
+  }
+}
+
+function isOnHome() {
+  return viewHome.classList.contains("active");
+}
+
+function flipPage(dir) {
+  if (!isOnHome()) return;
+  flipBy(dir);
+}
+
+document.getElementById("navPrev").addEventListener("click", () => {
+  if (isOnHome()) flipPage(-1);
+  else goBack();
+});
+document.getElementById("navNext").addEventListener("click", () => {
+  if (isOnHome()) flipPage(1);
+});
+
+// 中间键：双击回到首页聊天 App
+(function bindNavHome() {
+  const btn = document.getElementById("navHome");
+  let lastTap = 0;
+  const DBL_MS = 320;
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const now = performance.now();
+    if (now - lastTap <= DBL_MS) {
+      lastTap = 0;
+      goHomeChat();
+    } else {
+      lastTap = now;
+    }
+  });
+})();
+
+function goHomeChat() {
+  index = 0;
+  trackPos = 1;
+  showHome();
+  applyHomeTransform(false);
+}
+
+function bindApp(id) {
+  // 顶栏返回：委托到按钮，图片点击也能返回
+  const backBtn = viewApp.querySelector("[data-action=back]");
+  if (backBtn) {
+    backBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      goBack();
+    });
+  }
+
+  if (id === "settings") {
+    viewApp.querySelectorAll("[data-sub]").forEach((el) => {
+      el.onclick = () => openApp(el.dataset.sub, true);
+    });
+  }
+
+  if (id === "network") {
+    viewApp.querySelectorAll("#netSeg button").forEach((btn) => {
+      btn.onclick = () => {
+        netMode = btn.dataset.mode;
+        netSheet = null;
+        syncNetBadge();
+        openApp("network", fromSettings);
+      };
+    });
+    const scanBtn = viewApp.querySelector("#netScanBtn");
+    if (scanBtn) {
+      scanBtn.onclick = () => openNetScanSheet();
+    }
+    bindNetworkSheet();
+  }
+
+  if (id === "theme") {
+    viewApp.querySelectorAll("[data-theme]").forEach((el) => {
+      el.onclick = () => {
+        themeId = Number(el.dataset.theme);
+        openApp("theme", fromSettings);
+      };
+    });
+  }
+
+  if (id === "flip") {
+    viewApp.querySelectorAll("[data-flip]").forEach((el) => {
+      el.onclick = () => {
+        flipEffect = el.dataset.flip;
+        applyFlipEffectAttr();
+        applyHomeTransform(false);
+        openApp("flip", fromSettings);
+      };
+    });
+  }
+
+  if (id === "weather") {
+    const root = viewApp.querySelector("#wxRoot");
+    if (root) {
+      root.querySelectorAll("[data-wx]").forEach((btn) => {
+        btn.onclick = () => {
+          root.querySelectorAll("[data-wx]").forEach((b) => b.classList.remove("on"));
+          root.querySelectorAll("[data-pane]").forEach((p) => p.classList.remove("on"));
+          btn.classList.add("on");
+          const pane = root.querySelector(`[data-pane="${btn.dataset.wx}"]`);
+          if (pane) pane.classList.add("on");
+        };
+      });
+      const pager = root.querySelector("#wxFcPager");
+      const dots = root.querySelectorAll("#wxFcDots .wx-fc-dot");
+      if (pager && dots.length) {
+        const syncDots = () => {
+          const page = Math.round(pager.scrollLeft / Math.max(pager.clientWidth, 1));
+          dots.forEach((d, i) => d.classList.toggle("on", i === page));
+        };
+        pager.addEventListener("scroll", syncDots, { passive: true });
+      }
+    }
+  }
+}
+
+function openApp(id, viaSettings) {
+  fromSettings = !!viaSettings;
+  currentAppId = id;
+  viewApp.innerHTML = contentFor(id);
+  viewHome.classList.remove("active");
+  viewApp.classList.add("active");
+  const names = {
+    chat: "聊天", settings: "设置", network: "网络配置", info: "系统信息",
+    theme: "主题", vibrate: "震动", backlight: "背光", calculator: "计算器",
+    game2048: "2048", translate: "翻译", weather: "天气",
+    ai_image: "AI 绘图", digital: "数字人", ota: "OTA 升级",
+    flip: "翻页效果",
+  };
+  labelEl.textContent = (fromSettings && id !== "settings" ? "设置 · " : "App · ") + (names[id] || id);
+  bindApp(id);
+  tickClocks();
+}
+
+function showHome() {
+  fromSettings = false;
+  currentAppId = null;
+  netSheet = null;
+  viewApp.classList.remove("active");
+  viewHome.classList.add("active");
+  viewApp.innerHTML = "";
+  applyHomeTransform(true);
+}
+
+function formatClock(d = new Date()) {
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function tickClocks() {
+  const t = formatClock();
+  document.querySelectorAll("[data-clock]").forEach((el) => {
+    el.textContent = t;
+  });
+}
+
+function syncNetBadge() {
+  const el = document.getElementById("netBadge");
+  if (el) el.textContent = netMode === "wifi" ? "WiFi" : "4G";
+}
+
+tickClocks();
+setInterval(tickClocks, 1000);
+
+applyFlipEffectAttr();
+renderHome();
+</script>
+</body>
+</html>

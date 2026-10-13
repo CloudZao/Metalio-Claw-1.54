@@ -1,0 +1,18 @@
+{
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "metalio-claw-1.54",
+            "sdkconfig_append": [
+                "CONFIG_BT_ENABLED=y",
+                "CONFIG_BT_NIMBLE_ENABLED=y",
+                "CONFIG_BT_NIMBLE_BLUFI_ENABLE=y",
+                "CONFIG_MBEDTLS_DHM_C=y",
+                "CONFIG_ESP_TLS_INSECURE=y",
+                "CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y",
+                "CONFIG_LV_USE_GIF=y",
+                "CONFIG_LV_GIF_CACHE_DECODE_DATA=y"
+            ]
+        }
+    ]
+}
