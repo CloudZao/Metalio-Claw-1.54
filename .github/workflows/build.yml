@@ -134,6 +134,7 @@ jobs:
 
   publish-latest-release:
     name: Publish Latest release
+    needs: build
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -142,17 +143,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download built firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: Metalio-Claw-1.54_metalio-claw-1.54_${{ github.sha }}.bin
+          path: release-artifact
+
       - name: Prepare release artifact
         id: artifact
         shell: bash
         run: |
-          if [[ ! -f Metalio_Claw4_Latest.bin ]]; then
-            echo "Metalio_Claw4_Latest.bin not found in repository" >&2
+          if [[ ! -s release-artifact/merged-binary.bin ]]; then
+            echo "Built firmware artifact is missing or empty" >&2
             exit 1
           fi
+          VERSION="$(python -c 'import pathlib,re; text=pathlib.Path("CMakeLists.txt").read_text(); match=re.search(r"set\(PROJECT_VER\s+\"([^\"]+)\"\)", text); assert match, "PROJECT_VER not found"; print(match.group(1))')"
           TIMESTAMP="$(TZ=Asia/Shanghai date +%Y%m%d_%H%M)"
-          ARTIFACT="Metalio_Claw4_Latest_${TIMESTAMP}.bin"
-          cp Metalio_Claw4_Latest.bin "$ARTIFACT"
+          ARTIFACT="Metalio-Claw-1.54_${VERSION}_${TIMESTAMP}.bin"
+          cp release-artifact/merged-binary.bin "$ARTIFACT"
           echo "path=$ARTIFACT" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release title and notes from PR
